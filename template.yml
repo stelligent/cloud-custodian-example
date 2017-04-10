@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Cloud Custodian Sample Template
+
+Parameters:
+  SourceRepo:
+    Type: String
+    Description: Provider specific repository
+  SourceBranch:
+    Type: String
+    Description: Source Branch
+    Default: "master"
+  GitHubToken:
+    NoEcho: true
+    Type: String
+    Default: ""
+    Description: Secret. It might look something like 9b189a1654643522561f7b3ebd44a1531a4287af OAuthToken with access to Repo. Go to https://github.com/settings/tokens
+
+Resources:
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codebuild.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: ${AWS::StackName}-codebuild-role
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+          Version: '2012-10-17'
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: ${AWS::StackName}-codepipeline-role
+        PolicyDocument:
+          Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+          Version: '2012-10-17'
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    DependsOn: CodeBuildRole
+    Properties:
+      Name: !Sub ${AWS::StackName}-custodian
+      Description: Run Cloud Custodian
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/ubuntu-base:14.04
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 30
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: Source
+          InputArtifacts: []
+          OutputArtifacts:
+          - Name: SourceOutput
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: '1'
+            Provider: GitHub
+          Configuration:
+            Owner: {"Fn::Select": ["0", {"Fn::Split":["/", {"Ref": "SourceRepo"}]}]}
+            Repo: {"Fn::Select": ["1", {"Fn::Split":["/", {"Ref": "SourceRepo"}]}]}
+            Branch: !Ref SourceBranch
+            OAuthToken: !Ref GitHubToken
+          RunOrder: 1
+      - Name: Custodian
+        Actions:
+        - Name: Run
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          InputArtifacts:
+          - Name: SourceOutput
+          Configuration:
+            ProjectName: !Ref CodeBuild
+          RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !ImportValue mu-bucket-codepipeline
+Outputs:
+  CodePipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}
+    Description: CodePipeline URL
+  PipelineName:
+    Value: !Sub ${Pipeline}
+    Description: Pipeline Name
