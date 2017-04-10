@@ -1,3 +1,5 @@
+# https://console.aws.amazon.com/cloudformation/home?#/stacks/new?&templateURL=https://raw.githubusercontent.com/stelligent/cloud-custodian-example/master/template.yml
+
 AWSTemplateFormatVersion: "2010-09-09"
 
 Description: Cloud Custodian Sample Template
@@ -6,6 +8,7 @@ Parameters:
   SourceRepo:
     Type: String
     Description: Provider specific repository
+    Default: "stelligent/cloud-custodian-example"
   SourceBranch:
     Type: String
     Description: Source Branch
@@ -30,7 +33,7 @@ Resources:
           - sts:AssumeRole
       Path: "/"
       Policies:
-      - PolicyName: ${AWS::StackName}-codebuild-role
+      - PolicyName: !Sub ${AWS::StackName}-codebuild-role
         PolicyDocument:
           Statement:
           - Effect: Allow
@@ -50,7 +53,7 @@ Resources:
           - sts:AssumeRole
       Path: "/"
       Policies:
-      - PolicyName: ${AWS::StackName}-codepipeline-role
+      - PolicyName: !Sub ${AWS::StackName}-codepipeline-role
         PolicyDocument:
           Statement:
           - Effect: Allow
