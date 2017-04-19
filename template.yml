@@ -12,9 +12,51 @@ Resources:
         ToPort: '22'
         CidrIp: '0.0.0.0/0'
 
+  # VPC:
+  #    Type: AWS::EC2::VPC
+  #    Properties:
+  #     CidrBlock: 10.0.0.0/16
+  #
+  # Subnet:
+  #   DependsOn: VPC
+  #   Type: AWS::EC2::Subnet
+  #   Properties:
+  #     VpcId: !Ref VPC
+  #     CidrBlock: 10.0.0.0/24
+
+  User:
+    Type: AWS::IAM::User
+    Properties:
+      Path: "/"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: "*"
+                Resource: "*"
+  Keys:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref User
+
   DirtyInstance:
     Type: AWS::EC2::Instance
-    DependsOn: SecurityGroup
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-22ce4934
+      Tags:
+        - Key: DirtyInstance
+          Value: yup
+
+  CustodianInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - User
+      - Keys
+      # - Subnet
+      - SecurityGroup
+      - DirtyInstance
     Metadata:
       Comment: Cloud Custodian Config File
       AWS::CloudFormation::Init:
@@ -29,13 +71,14 @@ Resources:
                       - "tag:DirtyInstance": present
                     actions:
                       - terminate
-              mode: "000400"
+              mode: "000600"
               owner: root
               group: root
     Properties:
       KeyName: !Ref KeyName
       SecurityGroups:
         - !Ref SecurityGroup
+      # SubnetId: !Ref Subnet
       InstanceType: t2.micro
       ImageId: ami-22ce4934
       UserData:
@@ -47,7 +90,7 @@ Resources:
           virtualenv custodian
           source source custodian/bin/activate
           pip install c7n
+          echo "[default]" >> ~/.aws/credentials
+          echo "aws_access_key_id=${Keys}" >> ~/.aws/credentials
+          echo "aws_secret_access_key=${Keys.SecretAccessKey}" >> ~/.aws/credentials
           custodian run --output-dir=. /root/custodian.yml
-    Tags:
-      - Key: DirtyInstance
-        Value: yup

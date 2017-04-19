@@ -1,0 +1,8 @@
+---
+policies:
+  - name: keep-instance-policy
+    resource: ec2
+    filters:
+      - "tag:DirtyInstance": present
+    actions:
+      - terminate
