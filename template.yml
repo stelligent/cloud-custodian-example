@@ -1,123 +1,53 @@
-# https://console.aws.amazon.com/cloudformation/home?#/stacks/new?&templateURL=https://raw.githubusercontent.com/stelligent/cloud-custodian-example/master/template.yml
-
-AWSTemplateFormatVersion: "2010-09-09"
-
-Description: Cloud Custodian Sample Template
-
 Parameters:
-  SourceRepo:
-    Type: String
-    Description: Provider specific repository
-    Default: "stelligent/cloud-custodian-example"
-  SourceBranch:
-    Type: String
-    Description: Source Branch
-    Default: "master"
-  GitHubToken:
-    NoEcho: true
-    Type: String
-    Default: ""
-    Description: Secret. It might look something like 9b189a1654643522561f7b3ebd44a1531a4287af OAuthToken with access to Repo. Go to https://github.com/settings/tokens
-
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
 Resources:
-  CodeBuildRole:
-    Type: AWS::IAM::Role
+  SecurityGroup:
+     Type: AWS::EC2::SecurityGroup
+     Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: '0.0.0.0/0'
+
+  DirtyInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: SecurityGroup
+    Metadata:
+      Comment: Cloud Custodian Config File
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            /root/custodian.yml:
+              content: !Sub |
+                policies:
+                  - name: keep-instance-policy
+                    resource: ec2
+                    filters:
+                      - "tag:DirtyInstance": present
+                    actions:
+                      - terminate
+              mode: "000400"
+              owner: root
+              group: root
     Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - codebuild.amazonaws.com
-          Action:
-          - sts:AssumeRole
-      Path: "/"
-      Policies:
-      - PolicyName: !Sub ${AWS::StackName}-codebuild-role
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: "*"
-            Resource: "*"
-          Version: '2012-10-17'
-  CodePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service:
-            - codepipeline.amazonaws.com
-          Action:
-          - sts:AssumeRole
-      Path: "/"
-      Policies:
-      - PolicyName: !Sub ${AWS::StackName}-codepipeline-role
-        PolicyDocument:
-          Statement:
-          - Effect: Allow
-            Action: "*"
-            Resource: "*"
-          Version: '2012-10-17'
-  CodeBuild:
-    Type: AWS::CodeBuild::Project
-    DependsOn: CodeBuildRole
-    Properties:
-      Name: !Sub ${AWS::StackName}-custodian
-      Description: Run Cloud Custodian
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/ubuntu-base:14.04
-      Source:
-        Type: CODEPIPELINE
-      TimeoutInMinutes: 30
-  Pipeline:
-    Type: AWS::CodePipeline::Pipeline
-    Properties:
-      RoleArn: !GetAtt CodePipelineRole.Arn
-      Stages:
-      - Name: Source
-        Actions:
-        - Name: Source
-          InputArtifacts: []
-          OutputArtifacts:
-          - Name: SourceOutput
-          ActionTypeId:
-            Category: Source
-            Owner: ThirdParty
-            Version: '1'
-            Provider: GitHub
-          Configuration:
-            Owner: {"Fn::Select": ["0", {"Fn::Split":["/", {"Ref": "SourceRepo"}]}]}
-            Repo: {"Fn::Select": ["1", {"Fn::Split":["/", {"Ref": "SourceRepo"}]}]}
-            Branch: !Ref SourceBranch
-            OAuthToken: !Ref GitHubToken
-          RunOrder: 1
-      - Name: Custodian
-        Actions:
-        - Name: Run
-          ActionTypeId:
-            Category: Build
-            Owner: AWS
-            Version: '1'
-            Provider: CodeBuild
-          InputArtifacts:
-          - Name: SourceOutput
-          Configuration:
-            ProjectName: !Ref CodeBuild
-          RunOrder: 1
-      ArtifactStore:
-        Type: S3
-        Location: !ImportValue mu-bucket-codepipeline
-Outputs:
-  CodePipelineUrl:
-    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}
-    Description: CodePipeline URL
-  PipelineName:
-    Value: !Sub ${Pipeline}
-    Description: Pipeline Name
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref SecurityGroup
+      InstanceType: t2.micro
+      ImageId: ami-22ce4934
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource DirtyInstance --region ${AWS::Region}
+          cd /root
+          virtualenv custodian
+          source source custodian/bin/activate
+          pip install c7n
+          custodian run --output-dir=. /root/custodian.yml
+    Tags:
+      - Key: DirtyInstance
+        Value: yup
