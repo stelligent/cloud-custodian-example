@@ -1,13 +1,4 @@
 Resources:
-  SecurityGroup:
-     Type: AWS::EC2::SecurityGroup
-     Properties:
-      GroupDescription: Enable SSH access via port 22
-      SecurityGroupIngress:
-        IpProtocol: tcp
-        FromPort: '22'
-        ToPort: '22'
-        CidrIp: '0.0.0.0/0'
 
   VPC:
      Type: AWS::EC2::VPC
@@ -96,9 +87,6 @@ Resources:
               command: "source custodian/bin/activate && pip install c7n && custodian run --output-dir=. /root/custodian.yml"
               cwd: "~"
     Properties:
-      KeyName: DRM-key
-      SecurityGroups:
-        - !Ref SecurityGroup
       SubnetId: !Ref Subnet
       InstanceType: t2.micro
       ImageId: ami-22ce4934
